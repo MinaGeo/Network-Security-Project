@@ -7,6 +7,7 @@ from db import DB
 import getpass  # For password input
 from hashing import MD5
 import sys  # For exiting the program
+import auth  # Importing the auth module
 
 ClientBlockCipherObj = BlockCipher()
 blockCipherSelected = "AES"  # Default block cipher
@@ -34,7 +35,8 @@ def connect_to_server():
             return
 
         password = getpass.getpass("Enter your password: ")
-        db.register(username, password)
+        totp_secret = auth.generate_totp_secret(username)  # Generate and store the TOTP secret
+        db.register(username, password, totp_secret)
         print("Signup successful. You can now login.")
 
     elif action == "login":
@@ -48,6 +50,17 @@ def connect_to_server():
         if hashed_password != stored_password:
             print("Invalid credentials. Please try again.")
             return
+
+        # TOTP verification
+        totp_secret = db.get_totp_secret(username)
+        while True:
+            user_otp = input("Enter OTP from your authenticator app: ")
+            if auth.verify_totp(totp_secret, user_otp):
+                print("OTP verified successfully!")
+                break
+            else:
+                print("Invalid OTP. Please try again.")
+
         print("Login successful.")
 
     else:

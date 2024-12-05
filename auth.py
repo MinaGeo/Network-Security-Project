@@ -1,29 +1,25 @@
 import pyotp
 import qrcode
+import os
 
-secret = pyotp.random_base32()
-print(f"Your TOTP secret key: {secret}")
+# This function generates a TOTP secret for a user and returns the provisioning URI
+def generate_totp_secret(username):
+    secret = pyotp.random_base32()
+    provisioning_uri = pyotp.TOTP(secret).provisioning_uri(name=username, issuer_name="YourAppName")
 
-totp = pyotp.TOTP(secret)
+    # Generate and save the QR code
+    qr = qrcode.QRCode(box_size=10, border=5)
+    qr.add_data(provisioning_uri)
+    qr.make(fit=True)
+    img = qr.make_image(fill="black", back_color="white")
+    qr_code_path = f"{username}_totp_qr.png"
+    img.save(qr_code_path)
+    print(f"QR code saved as '{qr_code_path}'. Scan it with your authenticator app.")
 
-provisioning_uri = totp.provisioning_uri(name="user@example.com", issuer_name="YourAppName")
-print(f"Provisioning URI: {provisioning_uri}")
+    return secret
 
-qr = qrcode.QRCode(box_size=10, border=5)
-qr.add_data(provisioning_uri)
-qr.make(fit=True)
 
-img = qr.make_image(fill="black", back_color="white")
-img.save("totp_qr.png")
-print("QR code saved as 'totp_qr.png'. Scan it with Microsoft Authenticator.")
-
-print("\nScan the QR code with your authenticator app (e.g., Microsoft Authenticator).")
-print("Enter the 6-digit code from your app to verify:")
-
-while True:
-    user_otp = input("Enter OTP: ")
-    if totp.verify(user_otp):
-        print("Hello! OTP is correct.")
-        break
-    else:
-        print("No! Invalid OTP. Please try again.")
+# This function verifies the OTP entered by the user
+def verify_totp(secret, otp):
+    totp = pyotp.TOTP(secret)
+    return totp.verify(otp)
