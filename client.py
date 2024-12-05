@@ -8,9 +8,13 @@ import getpass  # For password input
 from hashing import MD5
 import sys  # For exiting the program
 import auth  # Importing the auth module
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding
 
 ClientBlockCipherObj = BlockCipher()
-blockCipherSelected = "AES"  # Default block cipher
+blockCipherSelected = "RSA"  # Default block cipher
 def write_key_to_file(key, filename):
     with open(filename, "wb") as file:
         file.write(key)
@@ -19,7 +23,6 @@ def connect_to_server():
     global blockCipherSelected, symmetric_key
     db = DB()  # Create an instance of DB
     hasher = MD5()  # Create an instance of the MD5 class
-
 
     print("Do you want to login or signup?")
     action = input("Type 'login' or 'signup': ").strip().lower()
@@ -80,20 +83,18 @@ def connect_to_server():
         symmetric_key = get_random_bytes(16 if blockCipherSelected == "AES" else 8)
         write_key_to_file(symmetric_key, "symmetric.key")
 
+        # Load RSA keys for encryption/decryption
+        rsa_private_key = load_rsa_private_key('private.pem')
+        rsa_public_key = load_rsa_public_key('public.pem')
+
         # Start receiving and sending threads
-        threading.Thread(target=receive_message, args=(client_socket,)).start()
-        send_message(client_socket, username)
-    except KeyboardInterrupt:
-        print("\nExiting... Goodbye!")
-        client_socket.close()
-        sys.exit()
+        threading.Thread(target=receive_message, args=(client_socket, rsa_private_key)).start()
+        send_message(client_socket, username, rsa_public_key)
     except Exception as e:
         print(f"Connection error: {e}")
         client_socket.close()
 
-
-def send_message(client_socket, username):
-    global symmetric_key
+def send_message(client_socket, username, rsa_public_key):
     try:
         while True:
             message = input(f"{username}: ")
@@ -102,17 +103,15 @@ def send_message(client_socket, username):
                 client_socket.close()
                 sys.exit()
 
-            plaintext = f"{username}: {message}".encode("utf-8")
-
-            # Read symmetric key from file
-            with open("symmetric.key", "rb") as file:
-                symmetric_key1 = file.read()
+            plaintext = f"{username}: {message}"
 
             # Encrypt message based on block cipher selection
-            if blockCipherSelected == "AES":
-                encrypted_data = ClientBlockCipherObj.encrypt_AES_EAX(plaintext, symmetric_key1)
+            if blockCipherSelected == "RSA":
+                encrypted_data = rsa_encrypt(rsa_public_key, plaintext)
+            elif blockCipherSelected == "AES":
+                encrypted_data = ClientBlockCipherObj.encrypt_AES_EAX(plaintext.encode("utf-8"), symmetric_key)
             else:
-                encrypted_data = ClientBlockCipherObj.encrypt_DES_EAX(plaintext, symmetric_key1)
+                encrypted_data = ClientBlockCipherObj.encrypt_DES_EAX(plaintext.encode("utf-8"), symmetric_key)
 
             client_socket.sendall(pickle.dumps(encrypted_data))
             print("Message sent!")
@@ -121,27 +120,60 @@ def send_message(client_socket, username):
         client_socket.close()
         sys.exit()
 
-
-def receive_message(client_socket):
+def receive_message(client_socket, rsa_private_key):
     try:
         while True:
             data = pickle.loads(client_socket.recv(4096))  # Deserialize data
-            ciphertext, tag, nonce = data
-
-            # Read symmetric key from file
-            with open("symmetric.key", "rb") as file:
-                symmetric_key1 = file.read()
-
-            # Decrypt based on block cipher selection
-            if blockCipherSelected == "AES":
-                plaintext = ClientBlockCipherObj.decrypt_AES_EAX(ciphertext, symmetric_key1, nonce, tag)
+            if blockCipherSelected == "RSA":
+                plaintext = rsa_decrypt(rsa_private_key, data)
+            elif blockCipherSelected == "AES":
+                ciphertext, tag, nonce = data
+                plaintext = ClientBlockCipherObj.decrypt_AES_EAX(ciphertext, symmetric_key, nonce, tag)
             else:
-                plaintext = ClientBlockCipherObj.decrypt_DES_EAX(ciphertext, symmetric_key1, nonce, tag)
+                ciphertext, tag, nonce = data
+                plaintext = ClientBlockCipherObj.decrypt_DES_EAX(ciphertext, symmetric_key, nonce, tag)
 
-            print(f"\nReceived: {plaintext.decode('utf-8')}")
+            print(f"\nReceived: {plaintext}")
     except Exception as e:
         print(f"Error receiving message: {e}")
         client_socket.close()
+
+def load_rsa_private_key(filename):
+    with open(filename, "rb") as key_file:
+        private_key = serialization.load_pem_private_key(
+            key_file.read(),
+            password=None,
+        )
+    return private_key
+
+def load_rsa_public_key(filename):
+    with open(filename, "rb") as key_file:
+        public_key = serialization.load_pem_public_key(
+            key_file.read()
+        )
+    return public_key
+
+def rsa_encrypt(public_key, message):
+    encrypted = public_key.encrypt(
+        message.encode('utf-8'),
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    return encrypted
+
+def rsa_decrypt(private_key, ciphertext):
+    decrypted = private_key.decrypt(
+        ciphertext,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    return decrypted.decode('utf-8')
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 pycryptodome
 pymongo
 cryptography
-pyotp qrcode[pil]
+pyotp
+qrcode[pil]
