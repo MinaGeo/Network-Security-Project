@@ -1,1 +1,3 @@
 pycryptodome
+pymongo
+cryptography
