@@ -95,6 +95,7 @@ def connect_to_server():
         client_socket.close()
 
 def send_message(client_socket, username, rsa_public_key):
+    global symmetric_key
     try:
         while True:
             message = input(f"{username}: ")
@@ -104,14 +105,17 @@ def send_message(client_socket, username, rsa_public_key):
                 sys.exit()
 
             plaintext = f"{username}: {message}"
+            # Read symmetric key from file
+            with open("symmetric.key", "rb") as file:
+                symmetric_key1 = file.read()
 
             # Encrypt message based on block cipher selection
             if blockCipherSelected == "RSA":
                 encrypted_data = rsa_encrypt(rsa_public_key, plaintext)
             elif blockCipherSelected == "AES":
-                encrypted_data = ClientBlockCipherObj.encrypt_AES_EAX(plaintext.encode("utf-8"), symmetric_key)
+                encrypted_data = ClientBlockCipherObj.encrypt_AES_EAX(plaintext.encode("utf-8"), symmetric_key1)
             else:
-                encrypted_data = ClientBlockCipherObj.encrypt_DES_EAX(plaintext.encode("utf-8"), symmetric_key)
+                encrypted_data = ClientBlockCipherObj.encrypt_DES_EAX(plaintext.encode("utf-8"), symmetric_key1)
 
             client_socket.sendall(pickle.dumps(encrypted_data))
             print("Message sent!")
@@ -121,20 +125,23 @@ def send_message(client_socket, username, rsa_public_key):
         sys.exit()
 
 def receive_message(client_socket, rsa_private_key):
+    global symmetric_key
     try:
         while True:
-            data = pickle.loads(client_socket.recv(4096))  # Deserialize data
 
+            data = pickle.loads(client_socket.recv(4096))  # Deserialize data
+            with open("symmetric.key", "rb") as file:
+                symmetric_key1 = file.read()
             if blockCipherSelected == "RSA":
-                plaintext = data
-                #plaintext = rsa_decrypt(rsa_private_key, data)
-                #plaintext = data.decode("utf-8")
+                #plaintext = data
+                plaintext = rsa_decrypt(rsa_private_key, data)
+                #plaintext = plaintext.decode("utf-8")
             elif blockCipherSelected == "AES":
                 ciphertext, tag, nonce = data
-                plaintext = ClientBlockCipherObj.decrypt_AES_EAX(ciphertext, symmetric_key, nonce, tag)
+                plaintext = ClientBlockCipherObj.decrypt_AES_EAX(ciphertext, symmetric_key1, nonce, tag)
             else:
                 ciphertext, tag, nonce = data
-                plaintext = ClientBlockCipherObj.decrypt_DES_EAX(ciphertext, symmetric_key, nonce, tag)
+                plaintext = ClientBlockCipherObj.decrypt_DES_EAX(ciphertext, symmetric_key1, nonce, tag)
 
             print(f"\nReceived: {plaintext}")
     except Exception as e:

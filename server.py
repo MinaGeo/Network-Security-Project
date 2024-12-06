@@ -22,7 +22,10 @@ PUBLICKEYEXECHANGED = 0
 ClientBlockCipherObj = BlockCipher()
 symmetric_key = None
 
-
+def read_key_from_file(filename):
+    with open(filename, "rb") as file:
+        key = file.read()  # Read the binary data from the file
+    return key.decode('utf-8')  # Return the key as a string (utf-8 encoding)
 def PublicKeyExechange(decoded_client_public_key):
     global client_data, clients, PUBLICKEYEXECHANGED
     print(f"Connected clients: {clients}")
@@ -101,17 +104,16 @@ def handle_client(client_socket, client_address):
 
             print(f"Received (serialized): {data}")
             encrypted_data = pickle.loads(data)
-
+            plaintext = encrypted_data
             # Decrypt message based on selected cipher
             if blockCipherSelected == "RSA":
-                plaintext = rsa_decrypt(rsa_private_key, encrypted_data).decode('utf-8')
+                pass
+                #plaintext = rsa_decrypt(rsa_private_key, encrypted_data).decode('utf-8')
                 #plaintext = plaintext.decode('utf-8')  # Decode bytes to string
             elif blockCipherSelected == "AES":
-                ciphertext, tag, nonce = encrypted_data
-                plaintext = ClientBlockCipherObj.decrypt_AES_EAX(ciphertext, symmetric_key, nonce, tag)
+                pass
             else:
-                ciphertext, tag, nonce = encrypted_data
-                plaintext = ClientBlockCipherObj.decrypt_DES_EAX(ciphertext, symmetric_key, nonce, tag)
+                pass
 
             print(f"Decrypted message: {plaintext}")
             broadcast(plaintext, client_socket)
