@@ -105,6 +105,7 @@ def handle_client(client_socket, client_address):
             # Decrypt message based on selected cipher
             if blockCipherSelected == "RSA":
                 plaintext = rsa_decrypt(rsa_private_key, encrypted_data).decode('utf-8')
+                #plaintext = plaintext.decode('utf-8')  # Decode bytes to string
             elif blockCipherSelected == "AES":
                 ciphertext, tag, nonce = encrypted_data
                 plaintext = ClientBlockCipherObj.decrypt_AES_EAX(ciphertext, symmetric_key, nonce, tag)

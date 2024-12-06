@@ -47,22 +47,22 @@ def connect_to_server():
             print("Account does not exist. Please signup first.")
             return
 
-        password = getpass.getpass("Enter your password: ")
+        """password = getpass.getpass("Enter your password: ")
         hashed_password = hasher.calculate_md5(password)
         stored_password = db.get_password(username)
         if hashed_password != stored_password:
             print("Invalid credentials. Please try again.")
-            return
+            return"""
 
         # TOTP verification
-        totp_secret = db.get_totp_secret(username)
+        """totp_secret = db.get_totp_secret(username)
         while True:
             user_otp = input("Enter OTP from your authenticator app: ")
             if auth.verify_totp(totp_secret, user_otp):
                 print("OTP verified successfully!")
                 break
             else:
-                print("Invalid OTP. Please try again.")
+                print("Invalid OTP. Please try again.")"""
 
         print("Login successful.")
 
@@ -124,8 +124,11 @@ def receive_message(client_socket, rsa_private_key):
     try:
         while True:
             data = pickle.loads(client_socket.recv(4096))  # Deserialize data
+
             if blockCipherSelected == "RSA":
-                plaintext = rsa_decrypt(rsa_private_key, data)
+                plaintext = data
+                #plaintext = rsa_decrypt(rsa_private_key, data)
+                #plaintext = data.decode("utf-8")
             elif blockCipherSelected == "AES":
                 ciphertext, tag, nonce = data
                 plaintext = ClientBlockCipherObj.decrypt_AES_EAX(ciphertext, symmetric_key, nonce, tag)
