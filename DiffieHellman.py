@@ -13,7 +13,7 @@ class DiffieHellman:
             "49286651ECE65381FFFFFFFFFFFFFFFF",
             16,
         )  # This is a commonly used safe prime
-        self.base = 2  # Generator value
+        self.base = 2  
 
     def generate_private_key(self):
 
