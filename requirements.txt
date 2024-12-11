@@ -3,3 +3,4 @@ pymongo
 cryptography
 pyotp
 qrcode[pil]
+tkinter

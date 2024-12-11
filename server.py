@@ -3,35 +3,30 @@ import threading
 import pickle  # For serialization
 from BlockCipher import BlockCipher
 from cryptography.hazmat.primitives import serialization
+from pem import *
 
 clients = []
 public_keys = {}
-CipherSelected = "RSA"
-encryptionSelected = "ECC"
-connected_clients = 0
 stop_server_event = threading.Event()
-client_data = []
-PUBLICKEYEXECHANGED = 0
-ClientBlockCipherObj = BlockCipher()
 symmetric_key = None
 client_ready_event = threading.Event()
-def read_key_from_file(filename):
-    with open(filename, "rb") as file:
-        key = file.read()  # Read the binary data from the file
-    return key.decode('utf-8')  # Return the key as a string (utf-8 encoding)
 
 
 def handle_client(client_socket, client_address):
-    username = client_socket.recv(1024).decode('utf-8')
-    client_socket.send(f"{CipherSelected}:NA".encode('utf-8'))
-    print(f"User {username} connected!")
+    data = client_socket.recv(1024).decode('utf-8')
+    CipherMode, username = data.split(',', 1)  # Split the data into CipherMode and username
+    print(f"User {username} connected! with {CipherMode} mode.")
 
     # Receive public key from client
     client_public_key_pem = client_socket.recv(2048)
     if not client_public_key_pem:
         print(f"Failed to receive public key from {username}")
         return
-    client_public_key = serialization.load_pem_public_key(client_public_key_pem)
+
+    if CipherMode == "RSA":
+        client_public_key = serialization.load_pem_public_key(client_public_key_pem)
+    else:
+        client_public_key = pem_to_int(client_public_key_pem)
     public_keys[username] = client_public_key
 
     print(f"Public key of {username} received and saved.")
@@ -49,11 +44,14 @@ def handle_client(client_socket, client_address):
         other_username = next(user for user in public_keys if user != username)
         other_client_public_key = public_keys[other_username]
 
-        # Serialize the other client's public key
-        other_client_public_key_pem = other_client_public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        )
+        if CipherMode == "RSA":
+            # Serialize the other client's public key
+            other_client_public_key_pem = other_client_public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            )
+        else:
+            other_client_public_key_pem = int_to_pem(other_client_public_key, "INTEGER")
         # Send the other client's public key to the current client
         try:
             print(f"Sending public key of {other_username} to {username}")
@@ -75,10 +73,12 @@ def handle_client(client_socket, client_address):
             print(f"Error with {username}: {e}")
             break
 
+
 # When the second client connects, set the event to allow Client 1 to proceed
 def notify_second_client_connected():
     print("Second client connected, notifying Client 1...")
     client_ready_event.set()
+
 
 def broadcast(message, client_socket):
     for client in clients:
@@ -89,8 +89,8 @@ def broadcast(message, client_socket):
             print(f"Broadcast Error: {e}")
             clients.remove(client)
 
+
 def main():
-    global CipherSelected
     host = '127.0.0.1'
     port = 5560
 
@@ -109,6 +109,7 @@ def main():
         print("Shutting down server...")
     finally:
         server_socket.close()
+
 
 if __name__ == "__main__":
     main()

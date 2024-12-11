@@ -1,5 +1,4 @@
 from pymongo import MongoClient
-from pymongo.errors import DuplicateKeyError
 from hashing import MD5  # Import the MD5 class from hashing.py
 
 
