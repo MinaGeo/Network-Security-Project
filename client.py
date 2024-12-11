@@ -1,3 +1,4 @@
+import re
 import socket
 import threading
 import pickle  # For serialization
@@ -14,13 +15,27 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 
 ClientBlockCipherObj = BlockCipher()
-blockCipherSelected = "RSA"  # Default block cipher
+CipherSelected = "RSA"  # Default block cipher
+
+
 def write_key_to_file(key, filename):
     with open(filename, "wb") as file:
         file.write(key)
 
+def generate_rsa_key_pair():
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048
+    )
+    public_key = private_key.public_key()
+    return private_key, public_key
+
+
+
+
+
 def connect_to_server():
-    global blockCipherSelected, symmetric_key
+    global CipherSelected, symmetric_key
     db = DB()  # Create an instance of DB
     hasher = MD5()  # Create an instance of the MD5 class
 
@@ -76,26 +91,41 @@ def connect_to_server():
 
         client_socket.send(username.encode())  # Send username
         PreConfig = client_socket.recv(1024).decode()
-        blockCipherSelected = PreConfig.split(":")[0]
-        print(f"Connected using {blockCipherSelected}")
+        CipherSelected = PreConfig.split(":")[0]
+        print(f"Connected using {CipherSelected}")
 
-        # Generate a symmetric key based on the selected block cipher
-        symmetric_key = get_random_bytes(16 if blockCipherSelected == "AES" else 8)
-        write_key_to_file(symmetric_key, "symmetric.key")
+        if CipherSelected == "RSA":
+            private_key, public_key = generate_rsa_key_pair()
 
-        # Load RSA keys for encryption/decryption
-        rsa_private_key = load_rsa_private_key('private.pem')
-        rsa_public_key = load_rsa_public_key('public.pem')
+            # Serialize public key
+            public_key_pem = public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            )
 
-        # Start receiving and sending threads
-        threading.Thread(target=receive_message, args=(client_socket, rsa_private_key)).start()
-        send_message(client_socket, username, rsa_public_key)
+            # Send public key to server
+            client_socket.send(public_key_pem)
+            other_client_public_key_pem = client_socket.recv(2048)
+            other_client_public_key = serialization.load_pem_public_key(other_client_public_key_pem)
+
+            # Start receiving and sending threads
+            threading.Thread(target=receive_message, args=(client_socket, private_key)).start()
+            send_message(client_socket, username, public_key, other_client_public_key)
+
+        elif CipherSelected == "AES" or CipherSelected == "DES":
+            # Generate a symmetric key based on the selected block cipher
+            symmetric_key = get_random_bytes(16 if CipherSelected == "AES" else 8)
+            write_key_to_file(symmetric_key, "symmetric.key")
+            # Start receiving and sending threads
+            threading.Thread(target=receive_message, args=(client_socket,)).start()
+            send_message(client_socket, username)
+
     except Exception as e:
         print(f"Connection error: {e}")
         client_socket.close()
 
-def send_message(client_socket, username, rsa_public_key):
-    global symmetric_key
+
+def send_message(client_socket, username, rsa_public_key, other_client_public_key):
     try:
         while True:
             message = input(f"{username}: ")
@@ -105,17 +135,19 @@ def send_message(client_socket, username, rsa_public_key):
                 sys.exit()
 
             plaintext = f"{username}: {message}"
-            # Read symmetric key from file
-            with open("symmetric.key", "rb") as file:
-                symmetric_key1 = file.read()
-
             # Encrypt message based on block cipher selection
-            if blockCipherSelected == "RSA":
-                encrypted_data = rsa_encrypt(rsa_public_key, plaintext)
-            elif blockCipherSelected == "AES":
-                encrypted_data = ClientBlockCipherObj.encrypt_AES_EAX(plaintext.encode("utf-8"), symmetric_key1)
+            if CipherSelected == "RSA":
+                encrypted_data = rsa_encrypt(other_client_public_key, plaintext)
+            elif CipherSelected == "AES":
+                # Read symmetric key from file
+                with open("symmetric.key", "rb") as file:
+                    symmetric_key1 = file.read()
+                    encrypted_data = ClientBlockCipherObj.encrypt_AES_EAX(plaintext.encode("utf-8"), symmetric_key1)
             else:
-                encrypted_data = ClientBlockCipherObj.encrypt_DES_EAX(plaintext.encode("utf-8"), symmetric_key1)
+                # Read symmetric key from file
+                with open("symmetric.key", "rb") as file:
+                    symmetric_key1 = file.read()
+                    encrypted_data = ClientBlockCipherObj.encrypt_DES_EAX(plaintext.encode("utf-8"), symmetric_key1)
 
             client_socket.sendall(pickle.dumps(encrypted_data))
             print("Message sent!")
@@ -124,29 +156,31 @@ def send_message(client_socket, username, rsa_public_key):
         client_socket.close()
         sys.exit()
 
+
 def receive_message(client_socket, rsa_private_key):
-    global symmetric_key
     try:
         while True:
 
             data = pickle.loads(client_socket.recv(4096))  # Deserialize data
-            with open("symmetric.key", "rb") as file:
-                symmetric_key1 = file.read()
-            if blockCipherSelected == "RSA":
-                #plaintext = data
+
+            if CipherSelected == "RSA":
                 plaintext = rsa_decrypt(rsa_private_key, data)
-                #plaintext = plaintext.decode("utf-8")
-            elif blockCipherSelected == "AES":
+            elif CipherSelected == "AES":
                 ciphertext, tag, nonce = data
-                plaintext = ClientBlockCipherObj.decrypt_AES_EAX(ciphertext, symmetric_key1, nonce, tag)
+                with open("symmetric.key", "rb") as file:
+                    symmetric_key = file.read()
+                    plaintext = ClientBlockCipherObj.decrypt_AES_EAX(ciphertext, symmetric_key, nonce, tag)
             else:
                 ciphertext, tag, nonce = data
-                plaintext = ClientBlockCipherObj.decrypt_DES_EAX(ciphertext, symmetric_key1, nonce, tag)
+                with open("symmetric.key", "rb") as file:
+                    symmetric_key = file.read()
+                    plaintext = ClientBlockCipherObj.decrypt_DES_EAX(ciphertext, symmetric_key, nonce, tag)
 
             print(f"\nReceived: {plaintext}")
     except Exception as e:
         print(f"Error receiving message: {e}")
         client_socket.close()
+
 
 def load_rsa_private_key(filename):
     with open(filename, "rb") as key_file:
@@ -156,12 +190,14 @@ def load_rsa_private_key(filename):
         )
     return private_key
 
+
 def load_rsa_public_key(filename):
     with open(filename, "rb") as key_file:
         public_key = serialization.load_pem_public_key(
             key_file.read()
         )
     return public_key
+
 
 def rsa_encrypt(public_key, message):
     encrypted = public_key.encrypt(
@@ -173,6 +209,7 @@ def rsa_encrypt(public_key, message):
         )
     )
     return encrypted
+
 
 def rsa_decrypt(private_key, ciphertext):
     decrypted = private_key.decrypt(
