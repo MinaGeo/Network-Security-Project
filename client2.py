@@ -5,11 +5,11 @@ from Crypto.Random import get_random_bytes
 from BlockCipher import BlockCipher
 
 ClientBlockCipherObj = BlockCipher()
-blockCipherSelected = "AES"  # Default block cipher
+CipherSelected = "AES"  # Default block cipher
 
 
 def connect_to_server():
-    global blockCipherSelected, symmetric_key
+    global CipherSelected, symmetric_key
     username = input("Enter your username: ").strip()
     if not username:
         print("Error: Username cannot be empty.")
@@ -44,7 +44,7 @@ def send_message(client_socket, username):
         plaintext = f"{username}: {message}".encode("utf-8")
 
         # Encrypt message based on block cipher selection
-        if blockCipherSelected == "AES":
+        if CipherSelected == "AES":
             encrypted_data = ClientBlockCipherObj.encrypt_AES_EAX(plaintext, symmetric_key)
         else:
             encrypted_data = ClientBlockCipherObj.encrypt_DES_EAX(plaintext, symmetric_key)
@@ -60,7 +60,7 @@ def receive_message(client_socket):
             ciphertext, tag, nonce = data
 
             # Decrypt based on block cipher selection
-            if blockCipherSelected == "AES":
+            if CipherSelected == "AES":
                 plaintext = ClientBlockCipherObj.decrypt_AES_EAX(ciphertext, symmetric_key, nonce, tag)
             else:
                 plaintext = ClientBlockCipherObj.decrypt_DES_EAX(ciphertext, symmetric_key, nonce, tag)
