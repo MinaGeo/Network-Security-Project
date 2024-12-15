@@ -1,9 +1,9 @@
 import socket
 import threading
 import pickle  # For serialization
-from BlockCipher import BlockCipher
 from cryptography.hazmat.primitives import serialization
 from pem import *
+from clieditor import *
 
 clients = []
 public_keys = {}
@@ -15,12 +15,12 @@ client_ready_event = threading.Event()
 def handle_client(client_socket, client_address):
     data = client_socket.recv(1024).decode('utf-8')
     CipherMode, username = data.split(',', 1)  # Split the data into CipherMode and username
-    print(f"User {username} connected! with {CipherMode} mode.")
+    green_message(f"User {username} connected! with {CipherMode} mode.")
 
     # Receive public key from client
     client_public_key_pem = client_socket.recv(2048)
     if not client_public_key_pem:
-        print(f"Failed to receive public key from {username}")
+        red_message(f"Failed to receive public key from {username}")
         return
 
     if CipherMode == "RSA":
@@ -29,13 +29,13 @@ def handle_client(client_socket, client_address):
         client_public_key = pem_to_int(client_public_key_pem)
     public_keys[username] = client_public_key
 
-    print(f"Public key of {username} received and saved.")
+    green_message(f"Public key of {username} received and saved.")
 
     # If this is the first client (Client 1), wait until the second client connects
     if len(public_keys) == 1:
-        print(f"{username} is waiting for the second client to connect...")
+        blue_message(f"{username} is the first client.")
         client_ready_event.wait()  # Block until Client 2 connects
-        print(f"{username} can proceed now.")
+        green_message(f"{username} can proceed now.")
 
     # Once both clients are connected, send each other's public key to the other client
     if len(public_keys) == 2:
@@ -54,11 +54,11 @@ def handle_client(client_socket, client_address):
             other_client_public_key_pem = int_to_pem(other_client_public_key, "INTEGER")
         # Send the other client's public key to the current client
         try:
-            print(f"Sending public key of {other_username} to {username}")
+            blue_message(f"Sending public key of {other_username} to {username}")
             client_socket.sendall(other_client_public_key_pem)
-            print(f"Public key of {other_username} sent to {username}")
+            green_message(f"Public key of {other_username} sent to {username}")
         except Exception as e:
-            print(f"Error sending public key to {username}: {e}")
+            red_message(f"Error sending public key to {username}: {e}")
 
     while True:
         try:
@@ -66,17 +66,27 @@ def handle_client(client_socket, client_address):
             if not data:
                 break  # No data, disconnecting
 
-            encrypted_data = pickle.loads(data)
-            plaintext = encrypted_data
-            broadcast(plaintext, client_socket)
+            # Check for exit message
+            message = pickle.loads(data)
+            if "exit" in message and message["exit"]:
+                username = message["username"]
+                print(f"{username} has left the chat.")
+                clients.remove(client_socket)  # Remove client from the list
+                public_keys.pop(username)  # Remove public key from the dictionary
+                client_socket.close()
+                break
+
+            encrypted_data = message
+            broadcast(encrypted_data, client_socket)
+
         except Exception as e:
-            print(f"Error with {username}: {e}")
+            red_message(f"Error with {username}: {e}")
             break
 
 
 # When the second client connects, set the event to allow Client 1 to proceed
 def notify_second_client_connected():
-    print("Second client connected, notifying Client 1...")
+    blue_message("Second client connected, notifying Client 1...")
     client_ready_event.set()
 
 
@@ -86,7 +96,7 @@ def broadcast(message, client_socket):
             if client != client_socket:
                 client.sendall(pickle.dumps(message))
         except Exception as e:
-            print(f"Broadcast Error: {e}")
+            red_message(f"Broadcast Error: {e}")
             clients.remove(client)
 
 
@@ -97,7 +107,7 @@ def main():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((host, port))
     server_socket.listen()
-    print(f"Server listening on {host}:{port} ")
+    blue_message(f"Server listening on {host}:{port}")
 
     try:
         while True:
@@ -106,7 +116,7 @@ def main():
             client_thread = threading.Thread(target=handle_client, args=(client_socket, client_address))
             client_thread.start()
     except KeyboardInterrupt:
-        print("Shutting down server...")
+        red_message("Server shutting down...")
     finally:
         server_socket.close()
 

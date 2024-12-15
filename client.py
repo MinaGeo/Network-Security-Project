@@ -8,81 +8,79 @@ from hashing import MD5
 import sys  # For exiting the program
 import auth  # Importing the auth module
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import padding
+from rsa import *
 from DiffieHellman import *
 from pem import *
-def generate_rsa_key_pair():
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048
-    )
-    public_key = private_key.public_key()
-    return private_key, public_key
-
+from clieditor import *
+online_users = []
 def connect_to_server():
     global CipherSelected, symmetric_key, BlockCipherObj
     db = DB()  # Create an instance of DB
     hasher = MD5()  # Create an instance of the MD5 class
 
+    while True:
+        yellow_message("Do you want to login or signup?")
+        action = input("Type 'login' or 'signup': ").strip().lower()
 
-    print("Do you want to login or signup?")
-    action = input("Type 'login' or 'signup': ").strip().lower()
+        if action not in ['login', 'signup']:
+            red_message("Invalid action. Please type 'login' or 'signup'.")
+            continue
 
-    username = input("Enter your username: ").strip()
-    if not username:
-        print("Error: Username cannot be empty.")
-        return
+        username = input("Enter your username: ").strip()
+        if not username:
+            red_message("Error: Username cannot be empty.")
+            continue
 
-    if action == "signup":
-        if db.is_account_exist(username):
-            print("Username already exists. Please login.")
-            return
+        if action == "signup":
+            if db.is_account_exist(username):
+                red_message("Username already exists. Please login.")
+                continue
 
-        password = getpass.getpass("Enter your password: ")
-        totp_secret = auth.generate_totp_secret(username)  # Generate and store the TOTP secret
-        db.register(username, password, totp_secret)
-        print("Signup successful. You can now login.")
+            password = getpass.getpass("Enter your password: ")
+            totp_secret = auth.generate_totp_secret(username)
+            db.register(username, password, totp_secret)
+            green_message("Signup successful. You can now login.")
 
-    elif action == "login":
-        if not db.is_account_exist(username):
-            print("Account does not exist. Please signup first.")
-            return
+        elif action == "login":
+            if not db.is_account_exist(username):
+                red_message("Account does not exist. Please signup first.")
+                continue
+            if username in online_users:
+                red_message("User already logged in.")
+                continue
 
-        password = getpass.getpass("Enter your password: ")
-        hashed_password = hasher.calculate_md5(password)
-        stored_password = db.get_password(username)
-        if hashed_password != stored_password:
-            print("Invalid credentials. Please try again.")
-            return
+            password = getpass.getpass("Enter your password: ")
+            hashed_password = hasher.calculate_md5(password)
+            stored_password = db.get_password(username)
+            if hashed_password != stored_password:
+                red_message("Invalid credentials. Please try again.")
+                continue
 
-        # TOTP verification
-        totp_secret = db.get_totp_secret(username)
-        while True:
-            user_otp = input("Enter OTP from your authenticator app: ")
-            if auth.verify_totp(totp_secret, user_otp):
-                print("OTP verified successfully!")
-                break
-            else:
-                print("Invalid OTP. Please try again.")
+            totp_secret = db.get_totp_secret(username)
+            while True:
+                user_otp = input("Enter OTP from your authenticator app: ")
+                if auth.verify_totp(totp_secret, user_otp):
+                    online_users.append(username)
+                    green_message("OTP verified successfully!")
+                    break
+                else:
+                    red_message("Invalid OTP. Please try again.")
 
-        print("Login successful.")
-
-    else:
-        print("Invalid action. Please type 'login' or 'signup'.")
-        return
+        break
 
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         client_socket.connect(("127.0.0.1", 5560))
-        CipherSelected = input("Enter the block cipher you want to use (AES or RSA): ").strip().upper()
+        while True:
+            CipherSelected = input("Enter the block cipher you want to use (AES, DES, or RSA): ").strip().upper()
+            if CipherSelected not in ["AES", "DES", "RSA"]:
+                red_message("Invalid cipher selection. Choose AES, DES, or RSA.")
+                continue
+            break
 
-        # Concatenate CipherSelected and username, separated by a delimiter (e.g., comma)
         message = f"{CipherSelected},{username}"
-
-        client_socket.sendall(message.encode())  # Send both CipherSelected and username
-        print(f"Connected using {CipherSelected}")
+        client_socket.sendall(message.encode())
+        blue_message(f"Connected using {CipherSelected}")
 
         if CipherSelected == "RSA":
             private_key, public_key = generate_rsa_key_pair()
@@ -95,6 +93,13 @@ def connect_to_server():
             client_socket.send(public_key_pem)
             other_client_public_key_pem = client_socket.recv(2048)
             other_client_public_key = serialization.load_pem_public_key(other_client_public_key_pem)
+
+            if other_client_public_key is None:
+                red_message("Error receiving public key.")
+                client_socket.close()
+                sys.exit()
+            else:
+                yellow_message("Chat started!")
 
             # Start receiving and sending threads
             threading.Thread(target=receive_message, args=(client_socket, private_key, None)).start()
@@ -110,23 +115,32 @@ def connect_to_server():
 
             dh_other_client_public_key_pem = client_socket.recv(2048)
             dh_other_client_public_key = pem_to_int(dh_other_client_public_key_pem)
-
+            if dh_other_client_public_key is None:
+                red_message("Error receiving public key.")
+                client_socket.close()
+                sys.exit()
+            else:
+                yellow_message("Chat started!")
             # Start receiving and sending threads
             threading.Thread(target=receive_message,
                              args=(client_socket, dh_other_client_public_key, BlockCipherObj)).start()
             send_message(client_socket, username, dh_other_client_public_key, BlockCipherObj)
 
+
     except Exception as e:
-        print(f"Connection error: {e}")
+        red_message(f"Connection error: {e}")
         client_socket.close()
 
 
 def send_message(client_socket, username, other_client_public_key, BlockCipherObj):
     try:
         while True:
-            message = input(f"{username}: ")
+            message = input()
             if message.lower() == "q":  # Check if the user wants to quit
-                print("Exiting chat...")
+                # Send an exit message to the server
+                exit_message = f"{username} has left the chat."
+                client_socket.sendall(pickle.dumps({"exit": True, "username": username, "message": exit_message}))
+                yellow_message("Exiting chat...")
                 client_socket.close()
                 sys.exit()
 
@@ -140,9 +154,11 @@ def send_message(client_socket, username, other_client_public_key, BlockCipherOb
                 encrypted_data = BlockCipherObj.encrypt_DES_EAX(plaintext.encode("utf-8"), other_client_public_key)
 
             client_socket.sendall(pickle.dumps(encrypted_data))
-            print("Message sent!")
+            # green_message("Message sent!")
     except KeyboardInterrupt:
-        print("\nExiting... Goodbye!")
+        exit_message = f"{username} has left the chat."
+        client_socket.sendall(pickle.dumps({"exit": True, "username": username, "message": exit_message}))
+        yellow_message("Exiting chat...")
         client_socket.close()
         sys.exit()
 
@@ -164,34 +180,10 @@ def receive_message(client_socket, rsa_private_key, BlockCipherObj):
                 plaintext = BlockCipherObj.decrypt_DES_EAX(ciphertext, rsa_private_key, nonce, tag)
                 plaintext = plaintext.decode("utf-8")
 
-            print(f"\nReceived: {plaintext}")
+            format_message(activate_link(plaintext))
     except Exception as e:
-        print(f"Error receiving message: {e}")
+        red_message(f"Error receiving message: {e}")
         client_socket.close()
-
-
-def rsa_encrypt(public_key, message):
-    encrypted = public_key.encrypt(
-        message.encode('utf-8'),
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
-    return encrypted
-
-
-def rsa_decrypt(private_key, ciphertext):
-    decrypted = private_key.decrypt(
-        ciphertext,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
-    return decrypted.decode('utf-8')
 
 
 if __name__ == "__main__":

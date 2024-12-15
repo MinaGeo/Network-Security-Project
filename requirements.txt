@@ -4,3 +4,5 @@ cryptography
 pyotp
 qrcode[pil]
 tkinter
+pyfiglet
+rich
