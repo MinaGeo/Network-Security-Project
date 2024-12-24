@@ -25,7 +25,10 @@ def compute_shared_secret(private_key, other_public_key):
     return shared_secret
 
 
-def generate_symmetric_key(shared_secret):
+def generate_symmetric_key(shared_secret, cipher_type="AES"):
     shared_secret_bytes = str(shared_secret).encode()  # Convert to bytes
-    symmetric_key = SHA256.new(shared_secret_bytes).digest()  # Hash the secret
+    if cipher_type == "DES":
+        symmetric_key = SHA256.new(shared_secret_bytes).digest()[:8]  # DES requires 8 bytes
+    else:
+        symmetric_key = SHA256.new(shared_secret_bytes).digest()  # AES requires 32 bytes (256-bit)
     return symmetric_key
