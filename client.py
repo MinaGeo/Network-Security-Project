@@ -132,12 +132,13 @@ def connect_to_server():
         client_socket.close()
 
 
+import hashlib  # Import for hashing
+
 def send_message(client_socket, username, other_client_public_key, BlockCipherObj):
     try:
         while True:
             message = input()
             if message.lower() == "q":  # Check if the user wants to quit
-                # Send an exit message to the server
                 exit_message = f"{username} has left the chat."
                 client_socket.sendall(pickle.dumps({"exit": True, "username": username, "message": exit_message}))
                 yellow_message("Exiting chat...")
@@ -145,6 +146,9 @@ def send_message(client_socket, username, other_client_public_key, BlockCipherOb
                 sys.exit()
 
             plaintext = f"{username}: {message}"
+            # Generate a hash for the plaintext
+            message_hash = hashlib.sha256(plaintext.encode()).hexdigest()
+
             # Encrypt message based on block cipher selection
             if CipherSelected == "RSA":
                 encrypted_data = rsa_encrypt(other_client_public_key, plaintext)
@@ -153,8 +157,9 @@ def send_message(client_socket, username, other_client_public_key, BlockCipherOb
             else:
                 encrypted_data = BlockCipherObj.encrypt_DES_EAX(plaintext.encode("utf-8"), other_client_public_key)
 
-            client_socket.sendall(pickle.dumps(encrypted_data))
-            # green_message("Message sent!")
+            # Combine the encrypted message and the hash
+            packaged_data = {"encrypted": encrypted_data, "hash": message_hash}
+            client_socket.sendall(pickle.dumps(packaged_data))
     except KeyboardInterrupt:
         exit_message = f"{username} has left the chat."
         client_socket.sendall(pickle.dumps({"exit": True, "username": username, "message": exit_message}))
@@ -166,21 +171,31 @@ def send_message(client_socket, username, other_client_public_key, BlockCipherOb
 def receive_message(client_socket, rsa_private_key, BlockCipherObj):
     try:
         while True:
-
             data = pickle.loads(client_socket.recv(4096))  # Deserialize data
+            received_hash = data["hash"]  # Extract the hash
+            encrypted_data = data["encrypted"]  # Extract the encrypted message
 
+            # Decrypt the message
             if CipherSelected == "RSA":
-                plaintext = rsa_decrypt(rsa_private_key, data)
+                plaintext = rsa_decrypt(rsa_private_key, encrypted_data)
             elif CipherSelected == "AES":
-                ciphertext, tag, nonce = data
+                ciphertext, tag, nonce = encrypted_data
                 plaintext = BlockCipherObj.decrypt_AES_EAX(ciphertext, rsa_private_key, nonce, tag)
                 plaintext = plaintext.decode("utf-8")
             else:
-                ciphertext, tag, nonce = data
+                ciphertext, tag, nonce = encrypted_data
                 plaintext = BlockCipherObj.decrypt_DES_EAX(ciphertext, rsa_private_key, nonce, tag)
                 plaintext = plaintext.decode("utf-8")
 
-            format_message(activate_link(plaintext))
+            # Calculate the hash of the decrypted plaintext
+            calculated_hash = hashlib.sha256(plaintext.encode()).hexdigest()
+
+            # Verify integrity
+            if calculated_hash == received_hash:
+                # green_message("Integrity check passed!")
+                format_message(activate_link(plaintext))
+            else:
+                red_message("Integrity check failed! Message may have been tampered with.")
     except Exception as e:
         red_message(f"Error receiving message: {e}")
         client_socket.close()
